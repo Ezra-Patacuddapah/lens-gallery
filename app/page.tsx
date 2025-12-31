@@ -11,7 +11,6 @@ import {
 
 const PAGE_SIZE = 12;
 
-// Defining an Interface for strict typing
 interface Post {
   id: string;
   image_url: string;
@@ -37,12 +36,31 @@ export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const thumbStripRef = useRef<(HTMLDivElement | null)[]>([]);
 
+  // 1. DATA FETCHING & REALTIME SYNC
   useEffect(() => {
     setHasMounted(true);
     fetchData();
     fetchAllForSlideshow();
+
+    // Subscribe to Realtime changes
+    const channel = supabase
+      .channel('realtime-gallery')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'posts' },
+        () => {
+          fetchData();
+          fetchAllForSlideshow();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [search, page]);
 
+  // 2. KEYBOARD NAVIGATION
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (slideshowIdx === null) return;
@@ -54,9 +72,12 @@ export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) 
     return () => window.removeEventListener("keydown", handleKey);
   }, [slideshowIdx, allPosts]);
 
+  // 3. THUMBNAIL AUTO-SCROLL
   useEffect(() => {
     if (slideshowIdx !== null && thumbStripRef.current[slideshowIdx]) {
-      thumbStripRef.current[slideshowIdx]?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+      thumbStripRef.current[slideshowIdx]?.scrollIntoView({ 
+        behavior: "smooth", inline: "center", block: "nearest" 
+      });
     }
   }, [slideshowIdx]);
 
@@ -99,7 +120,7 @@ export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) 
   };
 
   const handleSave = async () => {
-    if (!caption) return alert("Caption is required");
+    if (!caption) return alert("Caption required");
     setIsSaving(true);
     try {
       let finalUrl = editingPost?.image_url;
@@ -110,19 +131,18 @@ export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) 
         finalUrl = supabase.storage.from('images').getPublicUrl(name).data.publicUrl;
       }
       const payload = { caption, image_url: finalUrl };
-      editingPost ? await supabase.from("posts").update(payload).eq("id", editingPost.id) : await supabase.from("posts").insert([payload]);
+      editingPost 
+        ? await supabase.from("posts").update(payload).eq("id", editingPost.id) 
+        : await supabase.from("posts").insert([payload]);
+      
       setIsModalOpen(false);
       clearForm();
-      fetchData();
-      fetchAllForSlideshow();
     } catch (err: any) { alert(err.message); } finally { setIsSaving(false); }
   };
 
   const deletePost = async (id: string) => {
     if (confirm("Permanently delete this?")) {
       await supabase.from("posts").delete().eq("id", id);
-      fetchData();
-      fetchAllForSlideshow();
     }
   };
 
@@ -130,7 +150,7 @@ export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) 
 
   return (
     <main className="max-w-[1600px] mx-auto px-4 py-6 pb-24">
-      {/* 1. PORTALS */}
+      {/* PORTALS */}
       {hasMounted && document.getElementById("search-container") && ReactDOM.createPortal(
         <div className="relative w-full">
           <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
@@ -146,7 +166,7 @@ export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) 
         </>
       )}
 
-      {/* 2. GRID */}
+      {/* GRID */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-6 gap-4">
         {posts.map((post) => (
           <div key={post.id} className="group relative bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-sm transition-all hover:shadow-lg">
@@ -156,16 +176,10 @@ export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) 
             }} className="relative aspect-square overflow-hidden cursor-zoom-in">
               <Image src={post.image_url} alt="" fill className="object-cover transition-transform duration-500 md:group-hover:scale-105" sizes="(max-width: 640px) 100vw, 20vw" />
               {isAdmin && (
-                <>
-                  <div className="hidden lg:flex absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-all items-center justify-center gap-2">
-                    <button onClick={(e) => {e.stopPropagation(); setEditingPost(post); setCaption(post.caption); setIsModalOpen(true);}} className="p-3 bg-white rounded-full text-blue-600 hover:scale-110 cursor-pointer"><PencilSquareIcon className="h-5 w-5"/></button>
-                    <button onClick={(e) => {e.stopPropagation(); deletePost(post.id);}} className="p-3 bg-white rounded-full text-red-500 hover:scale-110 cursor-pointer"><TrashIcon className="h-5 w-5"/></button>
-                  </div>
-                  <div className="lg:hidden absolute bottom-2 right-2 flex gap-1">
-                    <button onClick={(e) => {e.stopPropagation(); setEditingPost(post); setCaption(post.caption); setIsModalOpen(true);}} className="p-2.5 bg-white/90 rounded-lg text-blue-600 shadow-lg cursor-pointer"><PencilSquareIcon className="h-4 w-4"/></button>
-                    <button onClick={(e) => {e.stopPropagation(); deletePost(post.id);}} className="p-2.5 bg-white/90 rounded-lg text-red-500 shadow-lg cursor-pointer"><TrashIcon className="h-4 w-4"/></button>
-                  </div>
-                </>
+                <div className="absolute bottom-2 right-2 flex gap-1 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
+                  <button onClick={(e) => {e.stopPropagation(); setEditingPost(post); setCaption(post.caption); setIsModalOpen(true);}} className="p-2.5 bg-white/90 rounded-lg text-blue-600 shadow-lg cursor-pointer hover:bg-white"><PencilSquareIcon className="h-4 w-4"/></button>
+                  <button onClick={(e) => {e.stopPropagation(); deletePost(post.id);}} className="p-2.5 bg-white/90 rounded-lg text-red-500 shadow-lg cursor-pointer hover:bg-white"><TrashIcon className="h-4 w-4"/></button>
+                </div>
               )}
             </div>
             <div className="p-4 font-bold text-xs truncate text-slate-500">{post.caption}</div>
@@ -173,30 +187,24 @@ export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) 
         ))}
       </div>
 
-      {/* 3. PAGINATION */}
+      {/* PAGINATION */}
       {total > PAGE_SIZE && (
         <div className="mt-12 flex justify-center items-center gap-2">
-          <button disabled={page === 0} onClick={() => setPage(p => p - 1)} className="p-3 bg-white rounded-xl border border-slate-200 disabled:opacity-20 cursor-pointer hover:bg-slate-50 transition-colors">
-            <ChevronLeftIcon className="h-5 w-5"/>
-          </button>
+          <button disabled={page === 0} onClick={() => setPage(p => p - 1)} className="p-3 bg-white rounded-xl border border-slate-200 disabled:opacity-20 cursor-pointer hover:bg-slate-50 transition-colors"><ChevronLeftIcon className="h-5 w-5"/></button>
           {[...Array(Math.ceil(total / PAGE_SIZE))].map((_, i) => (
-            <button key={i} onClick={() => setPage(i)} className={`w-11 h-11 rounded-xl font-bold text-sm cursor-pointer transition-all ${page === i ? "bg-blue-600 text-white shadow-md" : "bg-white text-slate-400 border border-slate-100 hover:bg-slate-50"}`}>
-              {i + 1}
-            </button>
+            <button key={i} onClick={() => setPage(i)} className={`w-11 h-11 rounded-xl font-bold text-sm cursor-pointer transition-all ${page === i ? "bg-blue-600 text-white shadow-md" : "bg-white text-slate-400 border border-slate-100 hover:bg-slate-50"}`}>{i + 1}</button>
           ))}
-          <button disabled={(page + 1) * PAGE_SIZE >= total} onClick={() => setPage(p => p + 1)} className="p-3 bg-white rounded-xl border border-slate-200 disabled:opacity-20 cursor-pointer hover:bg-slate-50 transition-colors">
-            <ChevronRightIcon className="h-5 w-5"/>
-          </button>
+          <button disabled={(page + 1) * PAGE_SIZE >= total} onClick={() => setPage(p => p + 1)} className="p-3 bg-white rounded-xl border border-slate-200 disabled:opacity-20 cursor-pointer hover:bg-slate-50 transition-colors"><ChevronRightIcon className="h-5 w-5"/></button>
         </div>
       )}
 
-      {/* 4. SLIDESHOW */}
-      {slideshowIdx !== null && allPosts.length > 0 && allPosts[slideshowIdx] && (
+      {/* SLIDESHOW */}
+      {slideshowIdx !== null && allPosts[slideshowIdx] && (
         <div className="fixed inset-0 z-[500] bg-black flex flex-col items-center justify-between py-6 select-none animate-in fade-in duration-300">
           <div className="w-full px-6 flex justify-between items-center z-[520]">
             <div className="text-white/40 text-[10px] font-mono leading-none">
               {slideshowIdx + 1} / {allPosts.length} <br/> 
-              <span className="hidden md:inline uppercase tracking-tighter opacity-50">Keyboard: Arrows to nav • Esc to exit</span>
+              <span className="hidden md:inline uppercase tracking-tighter opacity-50">Arrows to nav • Esc to exit</span>
             </div>
             <button onClick={closeSlide} className="p-2 text-white/60 hover:text-white bg-white/10 rounded-full cursor-pointer"><XMarkIcon className="h-6 w-6" /></button>
           </div>
@@ -212,12 +220,7 @@ export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) 
           <div className="w-full max-w-4xl px-4 mt-4">
             <div className="flex gap-2 overflow-x-auto pb-4 scrollbar-hide snap-x">
               {allPosts.map((thumb, tIdx) => (
-                <div 
-                  key={thumb.id} 
-                  ref={(el) => { thumbStripRef.current[tIdx] = el; }} // FIXED FOR REACT 19
-                  onClick={() => {setSlideshowIdx(tIdx); setIsZoomed(false);}} 
-                  className={`relative h-14 w-14 shrink-0 rounded-lg overflow-hidden snap-center border-2 transition-all cursor-pointer ${slideshowIdx === tIdx ? "border-blue-500 scale-110" : "border-transparent opacity-40 hover:opacity-100"}`}
-                >
+                <div key={thumb.id} ref={(el) => { thumbStripRef.current[tIdx] = el; }} onClick={() => {setSlideshowIdx(tIdx); setIsZoomed(false);}} className={`relative h-14 w-14 shrink-0 rounded-lg overflow-hidden snap-center border-2 transition-all cursor-pointer ${slideshowIdx === tIdx ? "border-blue-500 scale-110" : "border-transparent opacity-40 hover:opacity-100"}`}>
                   <Image src={thumb.image_url} alt="" fill className="object-cover" />
                 </div>
               ))}
@@ -226,7 +229,7 @@ export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) 
         </div>
       )}
 
-      {/* 5. ADMIN MODAL */}
+      {/* ADMIN MODAL */}
       {isModalOpen && (
         <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl">
@@ -238,16 +241,12 @@ export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) 
             <div className="relative mb-8">
               <input type="text" placeholder="Add a caption..." value={caption} onChange={(e) => setCaption(e.target.value)} className="w-full p-4 pr-12 bg-slate-100 rounded-2xl outline-none border-2 border-transparent focus:border-blue-50 transition-all" />
               {caption && (
-                <button onClick={() => setCaption("")} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer bg-slate-200/50 rounded-full p-1 transition-colors">
-                  <XMarkIcon className="h-4 w-4" />
-                </button>
+                <button onClick={() => setCaption("")} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer bg-slate-200/50 rounded-full p-1"><XMarkIcon className="h-4 w-4" /></button>
               )}
             </div>
             <div className="flex gap-4">
               <button onClick={() => setIsModalOpen(false)} className="flex-1 py-4 font-bold text-slate-400 cursor-pointer hover:text-slate-600">Cancel</button>
-              <button onClick={handleSave} disabled={isSaving} className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-bold cursor-pointer hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
-                {isSaving ? "Saving..." : "Save Changes"}
-              </button>
+              <button onClick={handleSave} disabled={isSaving} className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-bold cursor-pointer hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">{isSaving ? "Saving..." : "Save Changes"}</button>
             </div>
           </div>
         </div>
