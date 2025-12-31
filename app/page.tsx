@@ -42,22 +42,15 @@ export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) 
     fetchData();
     fetchAllForSlideshow();
 
-    // Subscribe to Realtime changes
     const channel = supabase
       .channel('realtime-gallery')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'posts' },
-        () => {
-          fetchData();
-          fetchAllForSlideshow();
-        }
-      )
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, () => {
+        fetchData();
+        fetchAllForSlideshow();
+      })
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [search, page]);
 
   // 2. KEYBOARD NAVIGATION
@@ -71,15 +64,6 @@ export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) 
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [slideshowIdx, allPosts]);
-
-  // 3. THUMBNAIL AUTO-SCROLL
-  useEffect(() => {
-    if (slideshowIdx !== null && thumbStripRef.current[slideshowIdx]) {
-      thumbStripRef.current[slideshowIdx]?.scrollIntoView({ 
-        behavior: "smooth", inline: "center", block: "nearest" 
-      });
-    }
-  }, [slideshowIdx]);
 
   async function fetchData() {
     let query = supabase.from("posts").select("*", { count: "exact" });
@@ -126,7 +110,8 @@ export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) 
       let finalUrl = editingPost?.image_url;
       if (fileInputRef.current?.files?.[0]) {
         const file = fileInputRef.current.files[0];
-        const name = `${Date.now()}-${file.name}`;
+        // Replace spaces with underscores to avoid URL encoding issues
+        const name = `${Date.now()}-${file.name.replace(/\s+/g, '_')}`; 
         await supabase.storage.from('images').upload(name, file);
         finalUrl = supabase.storage.from('images').getPublicUrl(name).data.publicUrl;
       }
@@ -140,9 +125,34 @@ export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) 
     } catch (err: any) { alert(err.message); } finally { setIsSaving(false); }
   };
 
-  const deletePost = async (id: string) => {
+  const deletePost = async (id: string, imageUrl: string) => {
     if (confirm("Permanently delete this?")) {
-      await supabase.from("posts").delete().eq("id", id);
+      try {
+        // 1. Precise Path Extraction
+        const bucketIdentifier = "/public/images/";
+        const parts = imageUrl.split(bucketIdentifier);
+        
+        if (parts.length >= 2) {
+          const fileName = decodeURIComponent(parts[1]); 
+          console.log("Attempting to delete file:", fileName);
+
+          // 2. Remove from Storage
+          const { error: storageError } = await supabase.storage
+            .from('images')
+            .remove([fileName]);
+
+          if (storageError) {
+            console.error("Storage Error:", storageError.message);
+          }
+        }
+
+        // 3. Delete from Database
+        const { error: dbError } = await supabase.from("posts").delete().eq("id", id);
+        if (dbError) throw dbError;
+
+      } catch (err: any) {
+        alert("Deletion failed: " + err.message);
+      }
     }
   };
 
@@ -150,7 +160,7 @@ export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) 
 
   return (
     <main className="max-w-[1600px] mx-auto px-4 py-6 pb-24">
-      {/* PORTALS */}
+      {/* 1. SEARCH PORTAL */}
       {hasMounted && document.getElementById("search-container") && ReactDOM.createPortal(
         <div className="relative w-full">
           <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
@@ -166,7 +176,7 @@ export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) 
         </>
       )}
 
-      {/* GRID */}
+      {/* 2. GRID */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-6 gap-4">
         {posts.map((post) => (
           <div key={post.id} className="group relative bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-sm transition-all hover:shadow-lg">
@@ -178,7 +188,7 @@ export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) 
               {isAdmin && (
                 <div className="absolute bottom-2 right-2 flex gap-1 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
                   <button onClick={(e) => {e.stopPropagation(); setEditingPost(post); setCaption(post.caption); setIsModalOpen(true);}} className="p-2.5 bg-white/90 rounded-lg text-blue-600 shadow-lg cursor-pointer hover:bg-white"><PencilSquareIcon className="h-4 w-4"/></button>
-                  <button onClick={(e) => {e.stopPropagation(); deletePost(post.id);}} className="p-2.5 bg-white/90 rounded-lg text-red-500 shadow-lg cursor-pointer hover:bg-white"><TrashIcon className="h-4 w-4"/></button>
+                  <button onClick={(e) => {e.stopPropagation(); deletePost(post.id, post.image_url);}} className="p-2.5 bg-white/90 rounded-lg text-red-500 shadow-lg cursor-pointer hover:bg-white"><TrashIcon className="h-4 w-4"/></button>
                 </div>
               )}
             </div>
@@ -187,7 +197,7 @@ export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) 
         ))}
       </div>
 
-      {/* PAGINATION */}
+      {/* 3. PAGINATION */}
       {total > PAGE_SIZE && (
         <div className="mt-12 flex justify-center items-center gap-2">
           <button disabled={page === 0} onClick={() => setPage(p => p - 1)} className="p-3 bg-white rounded-xl border border-slate-200 disabled:opacity-20 cursor-pointer hover:bg-slate-50 transition-colors"><ChevronLeftIcon className="h-5 w-5"/></button>
@@ -198,7 +208,7 @@ export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) 
         </div>
       )}
 
-      {/* SLIDESHOW */}
+      {/* 4. SLIDESHOW */}
       {slideshowIdx !== null && allPosts[slideshowIdx] && (
         <div className="fixed inset-0 z-[500] bg-black flex flex-col items-center justify-between py-6 select-none animate-in fade-in duration-300">
           <div className="w-full px-6 flex justify-between items-center z-[520]">
@@ -229,7 +239,7 @@ export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) 
         </div>
       )}
 
-      {/* ADMIN MODAL */}
+      {/* 5. ADMIN MODAL */}
       {isModalOpen && (
         <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl">
