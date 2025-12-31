@@ -11,9 +11,17 @@ import {
 
 const PAGE_SIZE = 12;
 
+// Defining an Interface for strict typing
+interface Post {
+  id: string;
+  image_url: string;
+  caption: string;
+  created_at?: string;
+}
+
 export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) {
-  const [posts, setPosts] = useState<any[]>([]);
-  const [allPosts, setAllPosts] = useState<any[]>([]);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [allPosts, setAllPosts] = useState<Post[]>([]);
   const [search, setSearch] = useState("");
   const [slideshowIdx, setSlideshowIdx] = useState<number | null>(null);
   const [isZoomed, setIsZoomed] = useState(false);
@@ -24,7 +32,7 @@ export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [caption, setCaption] = useState("");
-  const [editingPost, setEditingPost] = useState<any>(null);
+  const [editingPost, setEditingPost] = useState<Post | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const thumbStripRef = useRef<(HTMLDivElement | null)[]>([]);
@@ -106,7 +114,7 @@ export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) 
       setIsModalOpen(false);
       clearForm();
       fetchData();
-      fetchAllForSlideshow(); // Ensure slideshow updates too
+      fetchAllForSlideshow();
     } catch (err: any) { alert(err.message); } finally { setIsSaving(false); }
   };
 
@@ -182,7 +190,7 @@ export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) 
         </div>
       )}
 
-      {/* 4. SLIDESHOW (With Type Error Guard) */}
+      {/* 4. SLIDESHOW */}
       {slideshowIdx !== null && allPosts.length > 0 && allPosts[slideshowIdx] && (
         <div className="fixed inset-0 z-[500] bg-black flex flex-col items-center justify-between py-6 select-none animate-in fade-in duration-300">
           <div className="w-full px-6 flex justify-between items-center z-[520]">
@@ -204,7 +212,12 @@ export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) 
           <div className="w-full max-w-4xl px-4 mt-4">
             <div className="flex gap-2 overflow-x-auto pb-4 scrollbar-hide snap-x">
               {allPosts.map((thumb, tIdx) => (
-                <div key={thumb.id} ref={el => thumbStripRef.current[tIdx] = el} onClick={() => {setSlideshowIdx(tIdx); setIsZoomed(false);}} className={`relative h-14 w-14 shrink-0 rounded-lg overflow-hidden snap-center border-2 transition-all cursor-pointer ${slideshowIdx === tIdx ? "border-blue-500 scale-110" : "border-transparent opacity-40 hover:opacity-100"}`}>
+                <div 
+                  key={thumb.id} 
+                  ref={(el) => { thumbStripRef.current[tIdx] = el; }} // FIXED FOR REACT 19
+                  onClick={() => {setSlideshowIdx(tIdx); setIsZoomed(false);}} 
+                  className={`relative h-14 w-14 shrink-0 rounded-lg overflow-hidden snap-center border-2 transition-all cursor-pointer ${slideshowIdx === tIdx ? "border-blue-500 scale-110" : "border-transparent opacity-40 hover:opacity-100"}`}
+                >
                   <Image src={thumb.image_url} alt="" fill className="object-cover" />
                 </div>
               ))}
