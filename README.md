@@ -465,3 +465,88 @@ export default function GalleryPage({ isAdmin = false }: { isAdmin?: boolean }) 
   );
 }
 
+/types/index.ts
+
+export interface Post {
+  id: string;
+  image_url: string;
+  caption: string;
+  created_at?: string;
+}
+
+export interface GridProps {
+  posts: Post[];
+  allPosts: Post[];
+  loading: boolean;
+  pageSize: number;
+  isAdmin: boolean;
+  onEdit: (post: Post) => void;
+  onDelete: (id: string, url: string) => void;
+  onSelect: (index: number) => void;
+}
+
+/components/gallery/Grid.tsx
+
+"use client";
+import Image from "next/image";
+import { PhotoIcon, PencilSquareIcon, TrashIcon } from "@heroicons/react/24/outline";
+import { GridProps } from "@/types";
+
+export default function Grid({ 
+  posts, loading, pageSize, isAdmin, onEdit, onDelete, onSelect, allPosts 
+}: GridProps) {
+  
+  // Loading Skeletons
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-6 gap-4">
+        {[...Array(pageSize)].map((_, i) => (
+          <div key={i} className="aspect-square bg-slate-100 rounded-2xl animate-pulse flex items-center justify-center">
+            <PhotoIcon className="h-8 w-8 text-slate-200" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-6 gap-4">
+      {posts.map((post) => (
+        <div key={post.id} className="group relative bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-sm transition-all hover:shadow-lg">
+          <div 
+            onClick={() => onSelect(allPosts.findIndex(p => p.id === post.id))} 
+            className="relative aspect-square overflow-hidden cursor-zoom-in"
+          >
+            <Image 
+              src={post.image_url} 
+              alt={post.caption} 
+              fill 
+              className="object-cover transition-transform duration-500 md:group-hover:scale-105" 
+              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 20vw"
+            />
+            
+            {isAdmin && (
+              <div className="absolute bottom-2 right-2 flex gap-1 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
+                <button 
+                  onClick={(e) => { e.stopPropagation(); onEdit(post); }} 
+                  className="p-2 bg-white/90 rounded-lg text-blue-600 hover:bg-white cursor-pointer shadow-sm transition-colors"
+                >
+                  <PencilSquareIcon className="h-4 w-4"/>
+                </button>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); onDelete(post.id, post.image_url); }} 
+                  className="p-2 bg-white/90 rounded-lg text-red-500 hover:bg-white cursor-pointer shadow-sm transition-colors"
+                >
+                  <TrashIcon className="h-4 w-4"/>
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="p-4 font-bold text-xs truncate text-slate-500">
+            {post.caption}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
